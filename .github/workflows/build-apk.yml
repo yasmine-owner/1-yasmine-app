@@ -19,9 +19,11 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Unzip project
+      - name: Unzip project (newest zip by name)
         run: |
-          unzip -q "$(ls *.zip | head -1)" -d app_src
+          ZIP=$(ls *.zip | sort | tail -1)
+          echo "Using $ZIP"
+          unzip -q "$ZIP" -d app_src
           DIR=$(dirname "$(find app_src -name package.json -not -path '*/node_modules/*' | head -1)")
           echo "APP_DIR=$DIR" >> $GITHUB_ENV
 
@@ -29,7 +31,20 @@ jobs:
         run: |
           cd "$APP_DIR"
           npm install --legacy-peer-deps
-          npm install --legacy-peer-deps @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+
+      - name: Type check (information only, never blocks the build)
+        run: |
+          cd "$APP_DIR"
+          npx tsc --noEmit > "$GITHUB_WORKSPACE/typecheck.log" 2>&1 || true
+          echo "Type errors: $(grep -c 'error TS' "$GITHUB_WORKSPACE/typecheck.log" || true)"
+
+      - name: Upload type check log
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: typecheck-log
+          path: typecheck.log
 
       - name: Build web app
         run: |
@@ -41,6 +56,49 @@ jobs:
           cd "$APP_DIR"
           npx cap add android
           npx cap sync android
+
+      - name: Android native tweaks (zoom and print to PDF)
+        run: |
+          cd "$APP_DIR"
+          MA=$(find android -name MainActivity.java | head -1)
+          PKG=$(grep -m1 '^package' "$MA")
+          cat > /tmp/body.java <<'JAVA'
+          import android.content.Context;
+          import android.print.PrintAttributes;
+          import android.print.PrintDocumentAdapter;
+          import android.print.PrintManager;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+            @Override
+            public void onStart() {
+              super.onStart();
+              final WebView wv = this.bridge.getWebView();
+              WebSettings s = wv.getSettings();
+              s.setSupportZoom(true);
+              s.setBuiltInZoomControls(true);
+              s.setDisplayZoomControls(false);
+              wv.addJavascriptInterface(new Object() {
+                @JavascriptInterface
+                public void print() {
+                  runOnUiThread(new Runnable() {
+                    public void run() {
+                      PrintManager pm = (PrintManager) getSystemService(Context.PRINT_SERVICE);
+                      String name = "Factory_ERP_Report";
+                      PrintDocumentAdapter adapter = wv.createPrintDocumentAdapter(name);
+                      pm.print(name, adapter, new PrintAttributes.Builder().build());
+                    }
+                  });
+                }
+              }, "AndroidPrint");
+            }
+          }
+          JAVA
+          { echo "$PKG"; echo; cat /tmp/body.java; } > "$MA"
+          cat "$MA"
 
       - name: Build debug APK
         run: |
