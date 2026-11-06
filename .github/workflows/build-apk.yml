@@ -99,6 +99,10 @@ jobs:
           JAVA
           { echo "$PKG"; echo; cat /tmp/body.java; } > "$MA"
           cat "$MA"
+          MF=android/app/src/main/AndroidManifest.xml
+          sed -i 's#<application#<application android:requestLegacyExternalStorage="true"#' "$MF"
+          sed -i 's#</manifest>#<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" /><uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" /></manifest>#' "$MF"
+          grep -c 'requestLegacyExternalStorage' "$MF"
 
       - name: Build debug APK
         run: |
