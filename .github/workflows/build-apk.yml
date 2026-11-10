@@ -25,11 +25,26 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      # 2. فك ضغط ملفات مشروع الويب وملفات كوردوفا تلقائياً
-      - name: Extract Project Files
+      # 2. فك ضغط ملفات مشروع الويب وملفات كوردوفا تلقائياً عبر البحث عن الاسم
+      - name: Extract Project Files Safely
         run: |
-          unzip -o cordova_android.zip -d ./
-          unzip -o splash.pnghfd.zip -d ./www || unzip -o splash.pnghfd.zip -d ./
+          # البحث وفك ضغط ملف كوردوفا أينما كان امتداده
+          CORDOVA_FILE=$(find . -name "*cordova*" -type f | head -n 1)
+          if [ -n "$CORDOVA_FILE" ]; then
+            unzip -o "$CORDOVA_FILE" -d ./
+          else
+            echo "Cordova zip file not found!" && exit 1
+          fi
+
+          # البحث وفك ضغط ملف الويب splash أينما كان امتداده
+          SPLASH_FILE=$(find . -name "*splash*.zip" -type f | head -n 1)
+          if [ -n "$SPLASH_FILE" ]; then
+            mkdir -p www
+            unzip -o "$SPLASH_FILE" -d ./www || unzip -o "$SPLASH_FILE" -d ./
+          else
+            echo "Splash zip file not found, creating www folder if missing"
+            mkdir -p www
+          fi
 
       # 3. إنشاء ملف package.json تلقائياً لتفادي أخطاء الـ Build السابقة
       - name: Generate Package.json for Plain HTML
@@ -60,3 +75,4 @@ jobs:
         with:
           name: CNC-Launcher-APK
           path: platforms/android/app/build/outputs/apk/debug/*.apk
+
